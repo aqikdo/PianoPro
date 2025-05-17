@@ -177,8 +177,13 @@ class DeepMimicWrapper(EnvironmentWrapper):
         n_steps_lookahead: int = 2,
         mimic_z_axis: bool = False,    
         rsi: bool = False,
+        initial_mimic_weight: float = 1.0,
+        mimic_decay_rate: float = 1e-6,
     ) -> None:
         super().__init__(environment)
+        self._mimic_weight = initial_mimic_weight
+        self._mimic_decay = mimic_decay_rate
+        self._current_step = 0
         self._demonstrations_lh = demonstrations_lh
         self._demonstrations_rh = demonstrations_rh
         assert(len(self.task._notes)==len(self._demonstrations_lh))
@@ -221,10 +226,17 @@ class DeepMimicWrapper(EnvironmentWrapper):
         self._demonstrations_length = self._demonstrations_lh.shape[0]
         self._action_divergence_termination = False
     
+    def get_mimic_weight(self):
+        return self._mimic_weight
+    
     def observation_spec(self):
         return self._observation_spec
 
     def step(self, action) -> dm_env.TimeStep:
+        self._current_step += 1
+        if (self._current_step % 100) == 0:
+            self._mimic_weight = max(0.0, self._mimic_weight - self._mimic_decay)
+            print(f"Current mimic weight: {self._mimic_weight}")
         timestep = self._environment.step(action)
         self._reference_frame_idx = int(min(self._reference_frame_idx+self._step_scale, self._demonstrations_length-1))
         return self._remove_goal_observation(self._add_demo_observation(timestep))
@@ -290,7 +302,7 @@ class DeepMimicWrapper(EnvironmentWrapper):
             )
             rew = float(np.mean(rews))
         self.end_effector_mimic_rew += rew
-        return rew
+        return rew * self._mimic_weight
 
     def _add_deep_mimic_rewards(self):
         self.task._reward_fn.add("end_effector_pos_mimic", self._compute_end_effector_pos_mimic_reward)

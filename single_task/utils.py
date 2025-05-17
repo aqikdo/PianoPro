@@ -29,6 +29,17 @@ import gymnasium as gym
 import pickle
 from stable_baselines3.common.utils import set_random_seed
 
+
+def find_wrapper(env, target_class):
+    """递归查找特定类型的 Wrapper"""
+    if isinstance(env, target_class):
+        return env
+    elif hasattr(env, "env"):  # 如果是 Wrapper，继续向内层查找
+        return find_wrapper(env.env, target_class)
+    else:
+        return None
+
+
 def get_env_no_residual(args, record_dir: Optional[Path] = None):
     left_hand_action_list = np.load(
         f"dataset/high_level_trajectories/{args.mimic_task}_left_hand_action_list.npy"
