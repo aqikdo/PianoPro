@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 directory = 'pianomime'
 if directory not in sys.path:
     sys.path.append(directory)
@@ -107,14 +107,15 @@ def main(args: Args) -> None:
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    # wandb.login()
+    wandb.login()
 
-    # wandb.init(
-    #     project=args.project,
-    #     config=asdict(args),
-    #     name=run_name,
-    #     sync_tensorboard=True,
-    # )
+    wandb.init(
+        entity="DRL_group",
+        project="pianomime",
+        config=asdict(args),
+        name=run_name,
+        sync_tensorboard=True,
+    )
     eval_args = copy(args)
     eval_args = replace(eval_args, rsi=False)
     eval_env = get_env(eval_args, record_dir=experiment_dir / "eval")
@@ -152,6 +153,16 @@ def main(args: Args) -> None:
                         progress_bar=True,
                         reset_num_timesteps=False,
                         callback= None)
+            
+            # train_stats = {
+            #     "time/fps": model.logger.name_to_value["time/fps"],
+            #     "rollout/ep_rew_mean": model.logger.name_to_value["rollout/ep_rew_mean"],
+            #     "rollout/ep_len_mean": model.logger.name_to_value["rollout/ep_len_mean"],
+            #     "lr": model.logger.name_to_value["train/learning_rate"],
+            # }
+            # wandb.log(train_stats, step=i)
+            
+            
             # Evaluation
             obs, _ = eval_env.reset()
             while True:
@@ -161,20 +172,33 @@ def main(args: Args) -> None:
                     break
             log_dict = prefix_dict("eval", eval_env.env.get_statistics())
             music_dict = prefix_dict("eval", eval_env.env.get_musical_metrics())
-            # wandb.log(log_dict | music_dict, step=i)
-            # if args.deepmimic:
-                # wandb.log(prefix_dict("eval", eval_env.env.get_deepmimic_rews()), step=i)
+            wandb.log(log_dict | music_dict, step=i)
+            if args.deepmimic:
+                wandb.log(prefix_dict("eval", eval_env.env.get_deepmimic_rews()), step=i)
+            # eval_stats = {
+            #     "eval/f1": eval_env.env.get_musical_metrics()["f1"],
+            #     "eval/precision": eval_env.env.get_musical_metrics()["precision"],
+            #     "eval/recall": eval_env.env.get_musical_metrics()["recall"],
+            #     "eval/sustain_precision": eval_env.env.get_musical_metrics()["sustain_precision"],
+            #     "eval/sustain_recall": eval_env.env.get_musical_metrics()["sustain_recall"],
+            #     "eval/sustain_f1": eval_env.env.get_musical_metrics()["sustain_f1"],
+            # }
+            # wandb.log(eval_stats, step=i)
+           
             f1 = eval_env.env.get_musical_metrics()["f1"]
             if f1 > best_f1:
                 print("best_f1:{}->{}".format(best_f1, eval_env.env.get_musical_metrics()["f1"]))
                 best_f1 = eval_env.env.get_musical_metrics()["f1"]
                 model.save("./robopianist_rl/ckpts/{}_best".format(run_name))
-                # video = wandb.Video(str(eval_env.env.latest_filename), fps=4, format="mp4")
-                # wandb.log({"video": video, "global_step": i})
+                video = wandb.Video(str(eval_env.env.latest_filename), fps=4, format="mp4")
+                wandb.log({"video": video, "global_step": i})
             
             eval_env.env.latest_filename.unlink()  
     except KeyboardInterrupt:
-        pass
+        wandb.finish()
+        
+    finally:
+        wandb.finish()
 
     # model.save("./robopianist_rl/ckpts/{}".format(run_name))
 
