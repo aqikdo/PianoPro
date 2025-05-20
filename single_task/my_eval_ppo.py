@@ -124,62 +124,7 @@ def main(args: Args) -> None:
     # Parallel environments
     vec_env = SubprocVecEnv([make_envs(make_env, i) for i in range(args.num_envs)], start_method="fork")
 
-    lr_scheduler_instance = lr_scheduler.LR_Scheduler(initial_lr=args.initial_lr,
-                                                      decay_rate=args.lr_decay_rate,)
-
-    policy_kwargs = dict(activation_fn=torch.nn.GELU,
-                     net_arch=dict(pi=[1024, 256], vf=[1024, 256]))
-    model = PPO("MlpPolicy", 
-                vec_env, 
-                n_epochs=10,
-                n_steps=args.n_steps,
-                batch_size=1024,
-                learning_rate=lr_scheduler_instance.lr_schedule,
-                policy_kwargs=policy_kwargs, 
-                verbose=2,
-                tensorboard_log="./robopianist_rl/tensorboard/{}".format(run_name),
-                )
-    if args.pretrained is not None:
-        # Reload learning rate scheduler
-        custom_objects = { 'learning_rate': lr_scheduler_instance.lr_schedule}
-        model = PPO.load(args.pretrained, env=vec_env, custom_objects=custom_objects)
-    best_f1 = -np.inf
-    # last_extending_curriculum_step = 0
-    try:
-        for i in range(args.total_iters):
-            # Training
-            model.learn(total_timesteps=args.n_steps*args.num_envs, 
-                        progress_bar=True,
-                        reset_num_timesteps=False,
-                        callback= None)
-            # Evaluation
-            obs, _ = eval_env.reset()
-            while True:
-                action, _state = model.predict(obs, deterministic=True)
-                obs, reward, done, _, info = eval_env.step(action)
-                if done == True:
-                    break
-            log_dict = prefix_dict("eval", eval_env.env.get_statistics())
-            music_dict = prefix_dict("eval", eval_env.env.get_musical_metrics())
-            # wandb.log(log_dict | music_dict, step=i)
-            # if args.deepmimic:
-                # wandb.log(prefix_dict("eval", eval_env.env.get_deepmimic_rews()), step=i)
-            f1 = eval_env.env.get_musical_metrics()["f1"]
-            if f1 > best_f1:
-                print("best_f1:{}->{}".format(best_f1, eval_env.env.get_musical_metrics()["f1"]))
-                best_f1 = eval_env.env.get_musical_metrics()["f1"]
-                model.save("./robopianist_rl/ckpts/{}_best".format(run_name))
-                # video = wandb.Video(str(eval_env.env.latest_filename), fps=4, format="mp4")
-                # wandb.log({"video": video, "global_step": i})
-            
-            eval_env.env.latest_filename.unlink()  
-    except KeyboardInterrupt:
-        pass
-
-    # model.save("./robopianist_rl/ckpts/{}".format(run_name))
-
-    # Evaluate the trained model
-    model = PPO.load("./robopianist_rl/ckpts/{}_best".format(run_name), env=vec_env)
+    model = PPO.load("{}".format(args.pretrained), env=vec_env)
 
     obs, _ = eval_env.reset()
     actions = []
