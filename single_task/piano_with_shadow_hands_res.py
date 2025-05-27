@@ -147,6 +147,7 @@ class PianoWithShadowHandsResidual(base.PianoTask):
         self._curriculum_length = 100 # initial curriculum length (5 seconds)
         self._shift = shift
         self._enable_joints_vel_obs = enable_joints_vel_obs
+        self.key_weight = 1.0
 
         if not disable_fingering_reward and not disable_colorization:
             self._colorize_fingertips()
@@ -167,6 +168,25 @@ class PianoWithShadowHandsResidual(base.PianoTask):
             self._reward_fn.add("fingering_reward", self._compute_fingering_reward)
         if not self._disable_forearm_reward:
             self._reward_fn.add("forearm_reward", self._compute_forearm_reward)
+
+    def get_reward_components(self, physics):
+        """Return all reward components as a dictionary."""
+        reward_dict = {}
+        # 获取基本奖励组件
+        reward_dict["key_press_reward"] = self._compute_key_press_reward(physics)
+        reward_dict["sustain_reward"] = self._compute_sustain_reward(physics)
+        reward_dict["energy_reward"] = self._compute_energy_reward(physics)
+        
+        # 获取可选奖励组件
+        if not self._disable_fingering_reward:
+            reward_dict["fingering_reward"] = self._compute_fingering_reward(physics)
+        if not self._disable_forearm_reward:
+            reward_dict["forearm_reward"] = self._compute_forearm_reward(physics)
+            
+        # 添加总奖励值
+        reward_dict["total_reward"] = self._reward_fn.compute(physics)
+        return reward_dict
+
 
     def _reset_quantities_at_episode_init(self) -> None:
         self._t_idx: int = 0
@@ -251,6 +271,10 @@ class PianoWithShadowHandsResidual(base.PianoTask):
 
     def get_reward(self, physics: mjcf.Physics) -> float:
         return self._reward_fn.compute(physics)
+        # return self._reward_fn.weighted_compute(physics, {"key_press_reward": self.key_weight})
+
+    def update_key_weight(self, key_weight: float) -> None:
+        self.key_weight = key_weight
 
     def get_discount(self, physics: mjcf.Physics) -> float:
         del physics  # Unused.
@@ -352,7 +376,7 @@ class PianoWithShadowHandsResidual(base.PianoTask):
         # If there are any false positives, the remaining 0.5 reward is lost.
         off = np.flatnonzero(1 - self._goal_current[:-1])
         rew += 0.5 * (1 - float(self.piano.activation[off].any()))
-        return 2*rew
+        return 2*rew*self.key_weight
 
     def _compute_fingering_reward(self, physics: mjcf.Physics) -> float:
         """Reward for minimizing the distance between the fingers and the keys."""

@@ -177,13 +177,12 @@ class DeepMimicWrapper(EnvironmentWrapper):
         n_steps_lookahead: int = 2,
         mimic_z_axis: bool = False,    
         rsi: bool = False,
-        initial_mimic_weight: float = 1.0,
-        mimic_decay_rate: float = 1e-6,
+        disable_forearm_reward = True,
+        disable_fingering_reward = False,
+        mimic_weight_initial: float = 0.8,
+        mimic_weight_decay: float = 1.0,
     ) -> None:
         super().__init__(environment)
-        self._mimic_weight = initial_mimic_weight
-        self._mimic_decay = mimic_decay_rate
-        self._current_step = 0
         self._demonstrations_lh = demonstrations_lh
         self._demonstrations_rh = demonstrations_rh
         assert(len(self.task._notes)==len(self._demonstrations_lh))
@@ -194,7 +193,22 @@ class DeepMimicWrapper(EnvironmentWrapper):
         self._n_steps_lookahead = n_steps_lookahead
         self._mimic_z_axis = mimic_z_axis
         self._rsi = rsi # Reference state initialization
-
+        self._disable_forearm_reward = disable_forearm_reward
+        self._disable_fingering_reward = disable_fingering_reward
+        self.end_effector_mimic_rew_log = 0
+        self.end_effector_mimic_rew_z_log = 0
+        self.key_press_reward_log = 0
+        self.sustain_reward_log = 0
+        self.energy_reward_log = 0
+        self.fingering_reward_log = 0
+        self.forearm_reward_log = 0
+        self.total_reward_log = 0
+        self.mimic_weight_initial = mimic_weight_initial
+        self.mimic_weight = self.mimic_weight_initial
+        self.key_weight = 1.5 - self.mimic_weight / 2
+        self.mimic_weight_decay = mimic_weight_decay
+        self.current_step = 0
+        
         # Select the useful demonstrations. Remove quats, key_pressed and wrist
         useful_columns = [0, 1, 2]
         self._demonstrations_lh = self._demonstrations_lh[:, useful_columns, 1:]
@@ -226,17 +240,17 @@ class DeepMimicWrapper(EnvironmentWrapper):
         self._demonstrations_length = self._demonstrations_lh.shape[0]
         self._action_divergence_termination = False
     
-    def get_mimic_weight(self):
-        return self._mimic_weight
-    
     def observation_spec(self):
         return self._observation_spec
 
     def step(self, action) -> dm_env.TimeStep:
-        self._current_step += 1
-        if (self._current_step % 100) == 0:
-            self._mimic_weight = max(0.0, self._mimic_weight - self._mimic_decay)
-            print(f"Current mimic weight: {self._mimic_weight}")
+        self.current_step += 1
+        if (self.current_step % 100) == 0:
+            # reward = 2 * key_press_reward * (3/2 - t/2) + mimic_reward * t
+            # t = 0 -> all key press reward, t = 1 -> base reward, t = 3 -> all mimic reward
+            self.mimic_weight = self.mimic_weight * self.mimic_weight_decay
+            self.key_weight = 1.5 - self.mimic_weight / 2
+            self.task.update_key_weight(self.key_weight)
         timestep = self._environment.step(action)
         self._reference_frame_idx = int(min(self._reference_frame_idx+self._step_scale, self._demonstrations_length-1))
         return self._remove_goal_observation(self._add_demo_observation(timestep))
@@ -245,6 +259,14 @@ class DeepMimicWrapper(EnvironmentWrapper):
         timestep = self._environment.reset()
         self.end_effector_mimic_rew = 0
         self.end_effector_mimic_rew_z = 0
+        self.end_effector_mimic_rew_log = 0
+        self.end_effector_mimic_rew_z_log = 0
+        self.key_press_reward_log = 0
+        self.sustain_reward_log = 0
+        self.energy_reward_log = 0
+        self.fingering_reward_log = 0
+        self.forearm_reward_log = 0
+        self.total_reward_log = 0
         self._reference_frame_idx = -int(round(self._environment.task._initial_buffer_time/
                                             self._environment.task.control_timestep))
         return self._remove_goal_observation(self._add_demo_observation(timestep))
@@ -302,7 +324,7 @@ class DeepMimicWrapper(EnvironmentWrapper):
             )
             rew = float(np.mean(rews))
         self.end_effector_mimic_rew += rew
-        return rew * self._mimic_weight
+        return rew*self.mimic_weight
 
     def _add_deep_mimic_rewards(self):
         self.task._reward_fn.add("end_effector_pos_mimic", self._compute_end_effector_pos_mimic_reward)
@@ -335,8 +357,33 @@ class DeepMimicWrapper(EnvironmentWrapper):
             )
         )
     
+    def get_reward_components(self):
+        """Return all reward components as a dictionary."""
+        task = self.task
+        physics = self.physics
+        reward_dict = {}
+        # 获取基本奖励组件
+        reward_dict["key_press_reward"] = task._compute_key_press_reward(physics)
+        reward_dict["sustain_reward"] = task._compute_sustain_reward(physics)
+        reward_dict["energy_reward"] = task._compute_energy_reward(physics)
+        reward_dict["end_effector_pos_mimic_rew"] = self._compute_end_effector_pos_mimic_reward(physics)
+        reward_dict["total_reward"] = task._reward_fn.compute(physics)
+        reward_dict["mimic_weight"] = self.mimic_weight
+        reward_dict["key_weight"] = self.key_weight
+
+        # 获取可选奖励组件
+        if not self._disable_fingering_reward:
+            reward_dict["fingering_reward"] = task._compute_fingering_reward(physics)
+        if not self._disable_forearm_reward:
+            reward_dict["forearm_reward"] = task._compute_forearm_reward(physics)
+            
+        
+        return reward_dict
+    
+
     def get_deepmimic_rews(self):
         return {
             "end_effector_pos_mimic_rew": self.end_effector_mimic_rew,
             "end_effector_pos_mimic_rew_z": self.end_effector_mimic_rew_z,
         }
+        

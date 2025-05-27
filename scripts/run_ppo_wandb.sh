@@ -1,6 +1,6 @@
 #!/bin/bash
 
-WANDB_DIR=/data15/jinkun.liu.2502/shared/wandb MUJOCO_GL=egl XLA_PYTHON_CLIENT_PREALLOCATE=false CUDA_VISIBLE_DEVICES=1,2 MUJOCO_EGL_DEVICE_ID=0 python pianomime/single_task/train_ppo_wandb.py \
+WANDB_DIR=/data15/jinkun.liu.2502/shared/wandb MUJOCO_GL=egl XLA_PYTHON_CLIENT_PREALLOCATE=false CUDA_VISIBLE_DEVICES=4 MUJOCO_EGL_DEVICE_ID=0 python pianomime/single_task/train_ppo_wandb.py \
     --root-dir /tmp/robopianist/rl/ \
     --warmstart-steps 5000 \
     --max-steps 1000000 \

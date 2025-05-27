@@ -21,8 +21,17 @@ import sys
 import time
 import wandb
 import sys
+import os
+import datetime
 
 if __name__ == '__main__':
+    # set up logdir
+    timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M-%S')
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_dir = os.path.join(ROOT, 'runs', f'{timestamp}')
+    os.makedirs(log_dir, exist_ok=True)
+    print(f"All logs will be saved to {log_dir}")
+
     pred_horizon = 1
     action_horizon = 1
     obs_horizon = 1
@@ -96,7 +105,8 @@ if __name__ == '__main__':
         prediction_type='epsilon'
     )
     # wandb.login()
-    run_name = f"DF-HL-{dataset_path.split('.')[0]}"
+    #run_name = f"DF-HL-{dataset_path.split('.')[0]}"
+    run_name = f"high_level"
     # wandb.init(
     #     project="robopianist",
     #     name=run_name,
@@ -180,8 +190,8 @@ if __name__ == '__main__':
                 ema_model_state_dict = ema_noise_pred_net.state_dict()
 
                 # Specify the path to save the EMA model's weights
-                ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}_without_fingering.ckpt'.format(run_name)
-
+                # ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}_without_fingering.ckpt'.format(run_name)
+                ema_model_weights_path = os.path.join(log_dir, f'checkpoint_{run_name}_{epoch_idx}.ckpt')
                 # Save the EMA model's weights to the specified path
                 torch.save(ema_model_state_dict, ema_model_weights_path)
                 print("Saved checkpoint at epoch {}".format(epoch_idx))
@@ -195,7 +205,8 @@ if __name__ == '__main__':
     ema_model_state_dict = ema_noise_pred_net.state_dict()
 
     # Specify the path to save the EMA model's weights
-    ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}_without_fingering.ckpt'.format(run_name)
+    # ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}_without_fingering.ckpt'.format(run_name)
+    ema_model_weights_path = os.path.join(log_dir, f'checkpoint_{run_name}_final_without_fingering.ckpt')
 
     # Save the EMA model's weights to the specified path
     torch.save(ema_model_state_dict, ema_model_weights_path)

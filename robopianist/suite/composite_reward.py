@@ -54,6 +54,21 @@ class CompositeReward:
             sum_of_rewards += rew
             self._reward_terms[name] = rew
         return sum_of_rewards
+    
+    def weighted_compute(self, physics: mjcf.Physics, weights: Dict[str, float]) -> float:
+        """Computes the reward terms sequentially and returns their sum.
+
+        Note that the reward terms are computed in the order they were added.
+        """
+        sum_of_rewards = 0.0
+        for name, reward_fn in self._reward_fns.items():
+            if name not in weights:
+                weights[name] = 1.0
+            rew = reward_fn(physics)
+            sum_of_rewards += rew * weights[name]
+            self._reward_terms[name] = rew
+        return sum_of_rewards
+        
 
     @property
     def reward_fns(self) -> Dict[str, RewardFn]:

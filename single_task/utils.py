@@ -173,6 +173,7 @@ def get_env(args, record_dir: Optional[Path] = None):
     print(left_hand_action_list.shape[0])
     if args.deepmimic:
         print("deepmimic")
+        print("mimic_weight_initial: ", args.mimic_weight_initial, ", mimic_weight_decay: ", args.mimic_weight_decay)
         env = pianomime_wrappers.DeepMimicWrapper(
             environment=env,
             demonstrations_lh=left_hand_action_list,
@@ -180,6 +181,10 @@ def get_env(args, record_dir: Optional[Path] = None):
             remove_goal_observation=False,
             mimic_z_axis=args.mimic_z_axis,
             n_steps_lookahead=args.n_steps_lookahead,
+            disable_forearm_reward=True,
+            disable_fingering_reward=False,
+            mimic_weight_initial = args.mimic_weight_initial,
+            mimic_weight_decay = args.mimic_weight_decay,
         )
     if args.residual_action:
         print("residual action")

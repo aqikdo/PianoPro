@@ -89,6 +89,9 @@ class Args:
     rsi: bool = False
     curriculum: bool = False
     total_iters: int = 1000
+    mimic_weight_initial: float = 1.0
+    # t = 0 -> all key press reward, t = 1 -> base reward, t = 3 -> all mimic reward 
+    mimic_weight_decay: float = 1
 
 def prefix_dict(prefix: str, d: dict) -> dict:
     return {f"{prefix}/{k}": v for k, v in d.items()}
@@ -165,16 +168,33 @@ def main(args: Args) -> None:
             
             # Evaluation
             obs, _ = eval_env.reset()
+            all_reward_components = []
+
+            
             while True:
                 action, _state = model.predict(obs, deterministic=True)
                 obs, reward, done, _, info = eval_env.step(action)
+                reward_components = eval_env.env.get_reward_components()
+                all_reward_components.append(reward_components)
+                # print(reward_components)
                 if done == True:
                     break
+                
+            if all_reward_components:
+                mean_reward_components = {}
+                sum_reward_components = {}
+                for key in all_reward_components[0]:
+                    values = [rc[key] for rc in all_reward_components]
+                    mean_reward_components[key] = np.mean(values)                
+                    sum_reward_components[key] = np.sum(values)
+                wandb.log(prefix_dict("rewards_mean", mean_reward_components), step=i)
+                wandb.log(prefix_dict("rewards_sum", sum_reward_components), step=i)
+
             log_dict = prefix_dict("eval", eval_env.env.get_statistics())
             music_dict = prefix_dict("eval", eval_env.env.get_musical_metrics())
             wandb.log(log_dict | music_dict, step=i)
             if args.deepmimic:
-                wandb.log(prefix_dict("eval", eval_env.env.get_deepmimic_rews()), step=i)
+                wandb.log(prefix_dict("rewards", eval_env.env.get_deepmimic_rews()), step=i)
             # eval_stats = {
             #     "eval/f1": eval_env.env.get_musical_metrics()["f1"],
             #     "eval/precision": eval_env.env.get_musical_metrics()["precision"],

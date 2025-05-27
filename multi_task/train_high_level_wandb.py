@@ -18,7 +18,6 @@ from diffusers.optimization import get_scheduler
 from tqdm.auto import tqdm
 from dataset import RoboPianistDataset, read_dataset
 import sys
-from torchviz import make_dot
 import time
 import wandb
 import sys
@@ -33,17 +32,14 @@ if __name__ == '__main__':
     os.makedirs(log_dir, exist_ok=True)
     print(f"All logs will be saved to {log_dir}")
 
-    pred_horizon = 4
-    action_horizon = 4
+    pred_horizon = 1
+    action_horizon = 1
     obs_horizon = 1
 
-    obs_dim = 404
-    action_dim = 46
-    # seed = sys.argv[1]
-    num_songs = 1
-
+    obs_dim = 212
+    action_dim = 36
+    num_songs = 50
     dataset_path = sys.argv[1]
-
     device = torch.device('cuda')
 
     # create dataloader
@@ -55,27 +51,26 @@ if __name__ == '__main__':
   
     def create_midi_encoder(device='cuda'):
         # TCN for midi encoding
-        midi_encoder = ConvEncoder(
-                        in_channels=52,
-                        mid_channels=64,
-                        out_channels=128,
-                        horizon=4,
-                        noise_fingering=0,
-                        noise_ft=0,
-                    ).to(device)
+        midi_encoder = VariationalConvMlpEncoder(
+            in_channels=16,
+            mid_channels=32,
+            out_channels=64,
+            latent_dim=32,
+            noise=0.08,
+        ).to(device)
         return midi_encoder
     
     # Conditional UNet for noise prediction
     noise_pred_net = ConditionalUnet1D(
         input_dim=action_dim,
         global_cond_dim=obs_dim*obs_horizon,
-        midi_dim=208,
-        midi_cond_dim=0,
+        midi_dim=obs_dim,
         midi_encoder=create_midi_encoder,
+        midi_cond_dim=36,
         freeze_encoder=False,
     ).to(device)
 
-    num_epochs = 800
+    num_epochs = 1200
 
     # Exponential Moving Average
     # accelerates training and improves stability
@@ -109,15 +104,16 @@ if __name__ == '__main__':
         # our network predicts noise (instead of denoised action)
         prediction_type='epsilon'
     )
-    # wandb.login()
-    # run_name = f"DF-LL-{dataset_path.split('.')[0]}"
-    run_name = f"low_level"
-    # wandb.init(
-    #     project="robopianist",
-    #     name=run_name,
-    #     config={},
-    #     sync_tensorboard=True,
-    # )
+    wandb.login()
+    #run_name = f"DF-HL-{dataset_path.split('.')[0]}"
+    run_name = f"high_level"
+    wandb.init(
+        entity="DRL_group",
+        project="pianomime",
+        config={},
+        name=run_name,
+        sync_tensorboard=True,
+    )
 
     with tqdm(range(num_epochs), desc='Epoch') as tglobal:
         # epoch loop
@@ -127,9 +123,14 @@ if __name__ == '__main__':
             with tqdm(dataloader, desc='Batch', leave=False) as tepoch:
                 for nbatch in tepoch:
                     # data normalized in dataset
+                    # device transfer
                     nobs = nbatch['obs'].to(device)
                     naction = nbatch['action'].to(device)
-                    # print(naction.shape)
+                    
+                    naction = naction.reshape(naction.shape[0], 4, -1)
+
+                    # Exclude fingering, the last 10 elements is fingering, the first 36 is fingertip position
+                    naction = naction[:, :, :36]
                     B = nobs.shape[0]
 
                     # observation as FiLM conditioning
@@ -160,7 +161,7 @@ if __name__ == '__main__':
                     # L2 loss
                     l = noise_pred-noise
 
-                    loss = nn.functional.mse_loss(noise_pred, noise) 
+                    loss = nn.functional.mse_loss(noise_pred, noise) + noise_pred_net.kl
 
                     # optimize
                     loss.backward()
@@ -178,10 +179,10 @@ if __name__ == '__main__':
                     epoch_loss.append(loss_cpu)
                     tepoch.set_postfix(loss=loss_cpu)
             tglobal.set_postfix(loss=np.mean(epoch_loss))
-            # wandb.log({"loss": np.mean(epoch_loss)})
-            # wandb.log({"learning rate": lr_scheduler.get_last_lr()[0]})
-            # wandb.log({"epoch": epoch_idx})
-            if epoch_idx % 100 == 0:
+            wandb.log({"loss": np.mean(epoch_loss)})
+            wandb.log({"learning rate": lr_scheduler.get_last_lr()[0]})
+            wandb.log({"epoch": epoch_idx})
+            if epoch_idx % 400 == 0:
                 # Weights of the EMA model
                 # is used for inference
                 ema_noise_pred_net = ema.averaged_model
@@ -190,9 +191,8 @@ if __name__ == '__main__':
                 ema_model_state_dict = ema_noise_pred_net.state_dict()
 
                 # Specify the path to save the EMA model's weights
-                #ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}.ckpt'.format(run_name)
-                ema_model_weights_path = os.path.join(log_dir, 'checkpoint_{}.ckpt'.format(run_name))
-
+                # ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}_without_fingering.ckpt'.format(run_name)
+                ema_model_weights_path = os.path.join(log_dir, f'checkpoint_{run_name}_{epoch_idx}.ckpt')
                 # Save the EMA model's weights to the specified path
                 torch.save(ema_model_state_dict, ema_model_weights_path)
                 print("Saved checkpoint at epoch {}".format(epoch_idx))
@@ -206,10 +206,10 @@ if __name__ == '__main__':
     ema_model_state_dict = ema_noise_pred_net.state_dict()
 
     # Specify the path to save the EMA model's weights
-    #ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}.ckpt'.format(run_name)
-    ema_model_weights_path = os.path.join(log_dir, 'checkpoint_{}.ckpt'.format(run_name))
+    # ema_model_weights_path = 'diffusion/ckpts/checkpoint_{}_without_fingering.ckpt'.format(run_name)
+    ema_model_weights_path = os.path.join(log_dir, f'checkpoint_{run_name}_final_without_fingering.ckpt')
+
     # Save the EMA model's weights to the specified path
     torch.save(ema_model_state_dict, ema_model_weights_path)
 
     print("Done!")
-    # Kill

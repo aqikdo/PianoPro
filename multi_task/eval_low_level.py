@@ -102,7 +102,7 @@ def main() -> None:
         freeze_encoder=False,
     ).to(device)
 
-    ckpt_path = "checkpoint_low_level.ckpt"
+    ckpt_path = "pianomime/runs/20250506-1442-30/checkpoint_low_level.ckpt"
 
     state_dict = torch.load(ckpt_path, map_location='cuda')
     ema_noise_pred_net = noise_pred_net
