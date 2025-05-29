@@ -2,7 +2,7 @@ import sys
 directory = 'pianomime'
 if directory not in sys.path:
     sys.path.append(directory)
-from network import ConditionalUnet1D, EMAModel, ConvEncoder, VariationalConvMlpEncoder
+from network import ConditionalUnet1D, EMAModel, ConvEncoder, VariationalConvMlpEncoder, ConditionalUnet1DWithActionCond
 import torch
 import math
 from typing import Tuple, Sequence, Dict, Union, Optional
@@ -55,13 +55,14 @@ if __name__ == '__main__':
         return midi_encoder
     
     # Conditional UNet for noise prediction
-    noise_pred_net = ConditionalUnet1D(
+    noise_pred_net = ConditionalUnet1DWithActionCond(
         input_dim=action_dim,
         global_cond_dim=obs_dim*obs_horizon,
         midi_dim=obs_dim,
         midi_encoder=create_midi_encoder,
         midi_cond_dim=36,
         freeze_encoder=False,
+        action_cond_dim=10
     ).to(device)
 
     num_epochs = 1200
@@ -98,7 +99,7 @@ if __name__ == '__main__':
         # our network predicts noise (instead of denoised action)
         prediction_type='epsilon'
     )
-    run_name = "single"
+    run_name = "single_original"
     wandb.init(
         project="pianomime",
         name=run_name,
@@ -154,7 +155,7 @@ if __name__ == '__main__':
 
                     # predict the noise residual
                     noise_pred = noise_pred_net(
-                        noisy_actions, timesteps, global_cond=obs_cond)
+                        noisy_actions, timesteps, global_cond=obs_cond, action_cond=naction[:, :, -10:].mean(dim=1))
 
                     # L2 loss
                     l = noise_pred-noise
@@ -198,7 +199,7 @@ if __name__ == '__main__':
                 # 创建保存目录
                 exp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exp")
                 os.makedirs(exp_dir, exist_ok=True)
-                save_dir = os.path.join(exp_dir, f"high_level_single_{time.strftime('%Y%m%d_%H%M%S')}")
+                save_dir = os.path.join(exp_dir, f"w{time.strftime('%Y%m%d_%H%M%S')}")
                 os.makedirs(save_dir, exist_ok=True)
                 
                 # 保存EMA模型权重
@@ -217,7 +218,7 @@ if __name__ == '__main__':
     # 创建保存目录
     exp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "exp")
     os.makedirs(exp_dir, exist_ok=True)
-    save_dir = os.path.join(exp_dir, f"high_level_single_{time.strftime('%Y%m%d_%H%M%S')}")
+    save_dir = os.path.join(exp_dir, f"high_level_single_ori_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(save_dir, exist_ok=True)
     
     # 保存最终EMA模型权重

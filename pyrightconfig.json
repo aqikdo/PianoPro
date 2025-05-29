@@ -1,0 +1,7 @@
+{
+    "exclude": [
+        "dataset_hl.zarr",
+        "dataset_ll.zarr"
+    ],
+    "typeCheckingMode": "off"
+}
